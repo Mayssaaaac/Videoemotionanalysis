@@ -1,0 +1,3 @@
+opencv-python-headless
+deepface
+numpy==1.22.3
