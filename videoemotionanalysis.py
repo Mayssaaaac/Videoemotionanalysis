@@ -1,64 +1,46 @@
 import cv2
-import mediapipe as mp
-import math
-import os
+from deepface import DeepFace
 
-def analyze_posture(video_path):
-    """
-    Analyzes the posture in a video.
-
-    Parameters:
-        video_path (str): Path to the video file.
-
-    Returns:
-        dict: A dictionary containing analysis results including overall posture
-              and the percentage of good posture frames.
-    """
-    mp_pose = mp.solutions.pose
-    pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
+def detect_emotions(video_path):
     cap = cv2.VideoCapture(video_path)
-    good_posture_count = 0
-    bad_posture_count = 0
-    total_frames = 0
-    incomplete_landmark_frames = 0
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
 
-    while cap.isOpened():
+    emotion_count = {}
+    total_frames = 0
+
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
+
         total_frames += 1
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = pose.process(frame_rgb)
 
-        if results.pose_landmarks:
-            landmarks = results.pose_landmarks.landmark
+        try:
+            analysis = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False)
 
-            head_tilt_angle = abs(math.degrees(math.atan2(
-                landmarks[mp_pose.PoseLandmark.RIGHT_EYE_INNER].y - landmarks[mp_pose.PoseLandmark.LEFT_EYE_INNER].y,
-                landmarks[mp_pose.PoseLandmark.RIGHT_EYE_INNER].x - landmarks[mp_pose.PoseLandmark.LEFT_EYE_INNER].x)))
-            shoulder_slope_angle = abs(math.degrees(math.atan2(
-                landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER].y - landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER].y,
-                landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER].x - landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER].x)))
-
-            head_tilt_angle = min(head_tilt_angle, 180 - head_tilt_angle)
-            shoulder_slope_angle = min(shoulder_slope_angle, 180 - shoulder_slope_angle)
-
-            if head_tilt_angle > 15 or shoulder_slope_angle > 10:
-                bad_posture_count += 1
-            else:
-                good_posture_count += 1
-        else:
-            incomplete_landmark_frames += 1
+            if analysis and isinstance(analysis, list):
+                for result in analysis:
+                    if 'dominant_emotion' in result:
+                        dominant_emotion = result['dominant_emotion']
+                        if dominant_emotion in emotion_count:
+                            emotion_count[dominant_emotion] += 1
+                        else:
+                            emotion_count[dominant_emotion] = 1
+        except Exception as e:
+            print("Detection error:", e)
 
     cap.release()
+    cv2.destroyAllWindows()
 
-    evaluated_frames = total_frames - incomplete_landmark_frames
-    good_posture_percentage = (good_posture_count / evaluated_frames) * 100 if evaluated_frames > 0 else 0
-    overall_posture = 'good' if good_posture_count > bad_posture_count else 'bad'
-
-    return {
-        "video_name": os.path.basename(video_path),
-        "overall_posture": overall_posture,
-        "good_posture_percentage": good_posture_percentage
-    }
-
+    if total_frames > 0:
+        sorted_emotions = sorted(emotion_count.items(), key=lambda item: item[1], reverse=True)
+        top_two_emotions = sorted_emotions[:2]
+        
+        print("Percentage of frames for the two most dominant emotions:")
+        for emotion, count in top_two_emotions:
+            percentage = (count / total_frames) * 100
+            print(f"{emotion}: {percentage:.2f}%")
+    else:
+        print("No frames processed.")
